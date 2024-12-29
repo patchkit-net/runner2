@@ -1,0 +1,67 @@
+@startuml
+package "Application" {
+    class MainApp {
+        +run()
+    }
+    class ConfigManager {
+        +load_config(): void
+        +parse_secret(): string
+    }
+    class PatchKitClient {
+        +fetch_latest_version(): string
+        +download_package(version: string): void
+    }
+    class FileManager {
+        +extract_zip(file_path: string, destination: string): void
+        +remove_old_files(installed_files: List<string>): void
+        +write_log(message: string): void
+    }
+    class Installer {
+        +install_new_version(package_path: string): void
+        +save_installed_files(files_list: List<string>): void
+    }
+    class PermissionHandler {
+        +check_permissions(path: string): bool
+        +restart_with_admin_privileges(): void
+    }
+    class Launcher {
+        +launch_executable(arguments: List<string>): void
+    }
+    class LockfileManager {
+        +create_lockfile(lockfile_path: string): void
+        +validate_lockfile(lockfile_path: string): bool
+        +delete_lockfile(lockfile_path: string): void
+    }
+    class ManifestManager {
+        +parse_manifest(manifest_path: string): void
+        +resolve_variables(context: Map<string, string>): Map<string, string>
+        +get_target(): string
+        +get_arguments(): List<string>
+    }
+    class ErrorHandler {
+        +log_error(error: string): void
+        +display_error_message(error): void
+    }
+    class Logger {
+        +info(message: string): void
+        +error(message: string): void
+    }
+}
+
+MainApp -> ConfigManager : "uses"
+MainApp -> PatchKitClient : "uses"
+MainApp -> FileManager : "uses"
+MainApp -> Installer : "uses"
+MainApp -> PermissionHandler : "uses"
+MainApp -> LockfileManager : "uses"
+MainApp -> ManifestManager : "uses"
+MainApp -> Launcher : "uses"
+MainApp -> ErrorHandler : "uses"
+ErrorHandler -> Logger : "logs to"
+FileManager -> Logger : "logs to"
+Installer -> FileManager : "uses"
+ConfigManager -> PatchKitClient : "provides secret"
+ManifestManager -> FileManager : "reads manifest"
+ManifestManager -> Launcher : "provides target and arguments"
+LockfileManager -> FileManager : "uses to validate lockfiles"
+@enduml
