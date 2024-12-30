@@ -104,40 +104,8 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
     if !file_manager.needs_update(&version)? {
         info!("Already have the latest version {}, skipping update", version);
         
-        // Even though we skip the update, we still need to run the launcher
-        info!("Reading manifest file");
-        let manifest_path = extract_path.join("patcher.manifest");
-        let manifest_content = std::fs::read_to_string(&manifest_path)
-            .map_err(|e| {
-                error!("Failed to read manifest: {}", e);
-                runner2::Error::Manifest(format!("Failed to read manifest: {}", e))
-            })?;
-        let mut manifest = ManifestManager::new(&manifest_content)?;
-        info!("Successfully read manifest");
-
-        // Set up manifest variables
-        info!("Setting up manifest variables");
-        manifest.set_variable("exedir", extract_path.to_string_lossy().into());
-        manifest.set_variable("installdir", file_manager.get_install_dir().to_string_lossy().into());
-        let encoded_secret = config::secret::encode_secret(&launcher_data.app_secret);
-        manifest.set_variable("secret", encoded_secret);
-        manifest.set_variable("lockfile", "launcher.lock".into());
-        manifest.set_variable("network-status", "online".into());
-
-        // Launch the executable
-        info!("Launching executable");
-        sender.send(UiMessage::SetStatus("Launching...".into()))
-            .map_err(|e| runner2::Error::Other(e.to_string()))?;
-        let target = manifest.get_target()?;
-        let arguments = manifest.get_arguments()?;
-        info!("Launching {} with arguments: {:?}", target.display(), arguments);
-        launcher.launch_executable(target, &arguments)?;
-        info!("Launcher started successfully");
-
-        sender.send(UiMessage::SetProgress(1.0))
-            .map_err(|e| runner2::Error::Other(e.to_string()))?;
-        sender.send(UiMessage::Close)
-            .map_err(|e| runner2::Error::Other(e.to_string()))?;
+        // Launch the existing version
+        launch_from_manifest(&extract_path, &file_manager, &launcher_data, &launcher, &sender)?;
         return Ok(());
     }
     info!("Update needed to version {}", version);
@@ -206,45 +174,57 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
             // Non-critical error, continue execution
         }
 
-        // Read manifest
-        info!("Reading manifest file");
-        let manifest_path = extract_path.join("patcher.manifest");
-        let manifest_content = std::fs::read_to_string(&manifest_path)
-            .map_err(|e| {
-                error!("Failed to read manifest: {}", e);
-                runner2::Error::Manifest(format!("Failed to read manifest: {}", e))
-            })?;
-        let mut manifest = ManifestManager::new(&manifest_content)?;
-        info!("Successfully read manifest");
-
-        // Set up manifest variables
-        info!("Setting up manifest variables");
-        manifest.set_variable("exedir", extract_path.to_string_lossy().into());
-        manifest.set_variable("installdir", file_manager.get_install_dir().to_string_lossy().into());
-        let encoded_secret = config::secret::encode_secret(&launcher_data.app_secret);
-        manifest.set_variable("secret", encoded_secret);
-        manifest.set_variable("lockfile", "launcher.lock".into());
-        manifest.set_variable("network-status", "online".into());
-
-        // Launch the executable
-        info!("Launching executable");
-        sender.send(UiMessage::SetStatus("Launching...".into()))
-            .map_err(|e| runner2::Error::Other(e.to_string()))?;
-        let target = manifest.get_target()?;
-        let arguments = manifest.get_arguments()?;
-        info!("Launching {} with arguments: {:?}", target.display(), arguments);
-        launcher.launch_executable(target, &arguments)?;
-        info!("Launcher started successfully");
-
-        sender.send(UiMessage::SetProgress(1.0))
-            .map_err(|e| runner2::Error::Other(e.to_string()))?;
-        sender.send(UiMessage::Close)
-            .map_err(|e| runner2::Error::Other(e.to_string()))?;
+        // Launch the new version
+        launch_from_manifest(&extract_path, &file_manager, &launcher_data, &launcher, &sender)?;
     } else {
         warn!("No content URLs found");
     }
 
     info!("Runner completed successfully");
+    Ok(())
+}
+
+fn launch_from_manifest(
+    extract_path: &std::path::Path,
+    file_manager: &FileManager,
+    launcher_data: &LauncherData,
+    launcher: &Launcher,
+    sender: &Sender<UiMessage>,
+) -> Result<()> {
+    // Read manifest
+    info!("Reading manifest file");
+    let manifest_path = extract_path.join("patcher.manifest");
+    let manifest_content = std::fs::read_to_string(&manifest_path)
+        .map_err(|e| {
+            error!("Failed to read manifest: {}", e);
+            runner2::Error::Manifest(format!("Failed to read manifest: {}", e))
+        })?;
+    let mut manifest = ManifestManager::new(&manifest_content)?;
+    info!("Successfully read manifest");
+
+    // Set up manifest variables
+    info!("Setting up manifest variables");
+    manifest.set_variable("exedir", extract_path.to_string_lossy().into());
+    manifest.set_variable("installdir", file_manager.get_install_dir().to_string_lossy().into());
+    let encoded_secret = config::secret::encode_secret(&launcher_data.app_secret);
+    manifest.set_variable("secret", encoded_secret);
+    manifest.set_variable("lockfile", "launcher.lock".into());
+    manifest.set_variable("network-status", "online".into());
+
+    // Launch the executable
+    info!("Launching executable");
+    sender.send(UiMessage::SetStatus("Launching...".into()))
+        .map_err(|e| runner2::Error::Other(e.to_string()))?;
+    let target = manifest.get_target()?;
+    let arguments = manifest.get_arguments()?;
+    info!("Launching {} with arguments: {:?}", target.display(), arguments);
+    launcher.launch_executable(target, &arguments)?;
+    info!("Launcher started successfully");
+
+    sender.send(UiMessage::SetProgress(1.0))
+        .map_err(|e| runner2::Error::Other(e.to_string()))?;
+    sender.send(UiMessage::Close)
+        .map_err(|e| runner2::Error::Other(e.to_string()))?;
     Ok(())
 }
 
