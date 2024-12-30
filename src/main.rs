@@ -16,7 +16,7 @@ use tokio::runtime::Runtime;
 use tempfile;
 
 const WINDOW_WIDTH: f32 = 400.0;
-const WINDOW_HEIGHT: f32 = 200.0;
+const WINDOW_HEIGHT: f32 = 100.0;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -31,6 +31,7 @@ async fn main() -> Result<()> {
         viewport: ViewportBuilder::default()
             .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
             .with_resizable(false),
+        centered: true,
         ..Default::default()
     };
 

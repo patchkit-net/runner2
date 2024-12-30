@@ -25,9 +25,6 @@ impl RunnerApp {
         cc.egui_ctx.set_pixels_per_point(1.0);
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
         
-        // Set initial window size
-        cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(400.0, 100.0)));
-
         let (sender, receiver) = channel();
         
         Self {
