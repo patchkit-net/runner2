@@ -107,13 +107,15 @@ mod tests {
     use std::io::Cursor;
 
     fn encode_byte(b: u8) -> u8 {
-        // First invert all bits
-        let inverted = !b;
-        // Extract LSB and move it to MSB
-        let lsb = inverted & 1;
-        // Shift right by 1 and set LSB to original MSB
-        let shifted = (inverted >> 1) | (lsb << 7);
-        shifted
+        // Start with original byte
+        let mut encoded = b;
+        // First get the MSB which will become LSB
+        let msb = (encoded & 0x80) >> 7;
+        // Shift left by 1 and set new LSB to original MSB
+        encoded = (encoded << 1) | msb;
+        // Invert all bits to complete the encoding
+        encoded = !encoded;
+        encoded
     }
 
     #[test]
