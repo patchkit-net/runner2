@@ -1,10 +1,17 @@
-Before you finish, do check:
+# Before you finish, do check:
 - If the project still can be built (cargo build)
 - If tests are still passing (cargo test)
 
-If you're constantly fail to fix a piece of code or a test, try a different approach:
+# If you're constantly fail to fix a piece of code or a test, try a different approach:
+
 1. Add a lot of debugging prints to the code that might help you find exactly where it fails and why.
 2. Analyze the output
 3. If the output is not clearly telling you what the issue is, try narrowing it down by adding some more logs.
 4. Only when you have a valid proof of what is happening, try to fix it. If you won't be able, try to narrow it down even further.
 5. If it finally works, consider removing the debugging code.
+
+# When implementing a new feature or fixing a bug, unless asked otherwise:
+
+1. Create a test for this change.
+2. Try not to create tests for anything else, but this.
+3. Run the tests to check if it works.
