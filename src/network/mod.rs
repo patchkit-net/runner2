@@ -63,7 +63,6 @@ pub struct AppInfo {
 impl NetworkManager {
     pub fn new() -> Self {
         let client = Client::builder()
-            .timeout(Duration::from_secs(10))
             .build()
             .expect("Failed to create HTTP client");
             
