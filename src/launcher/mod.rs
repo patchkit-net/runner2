@@ -24,7 +24,7 @@ impl Launcher {
             }
         };
         
-        let status = if cfg!(target_os = "macos") && absolute_path.extension().map_or(false, |ext| ext == "app") {
+        if cfg!(target_os = "macos") && absolute_path.extension().map_or(false, |ext| ext == "app") {
             // For macOS .app bundles, we need to use the 'open' command
             let mut cmd = Command::new("/usr/bin/open");
             
@@ -43,7 +43,7 @@ impl Launcher {
             }
             
             info!("Launching /usr/bin/open with arguments: {:?}", cmd.get_args().collect::<Vec<_>>());
-            cmd.spawn()?.wait()?
+            cmd.spawn()?.wait()?;
         } else {
             // For regular executables, run them directly
             let mut cmd = Command::new(&absolute_path);
@@ -59,14 +59,20 @@ impl Launcher {
             cmd.current_dir(current_dir);
             
             info!("Launching {} with arguments: {:?}", absolute_path.display(), arguments);
-            cmd.spawn()?.wait()?
-        };
-
-        if !status.success() {
-            return Err(crate::Error::Other(format!(
-                "Launcher exited with status: {}",
-                status
-            )));
+            
+            if cfg!(target_os = "windows") {
+                // On Windows, just spawn and don't wait
+                cmd.spawn()?;
+            } else {
+                // On other platforms, wait for completion as before
+                let status = cmd.spawn()?.wait()?;
+                if !status.success() {
+                    return Err(crate::Error::Other(format!(
+                        "Launcher exited with status: {}",
+                        status
+                    )));
+                }
+            }
         }
 
         Ok(())
