@@ -86,3 +86,50 @@ You can use the debugging environment variables to force a specific endpoint, di
 - `PK_RUNNER_DISABLE_LOCKFILE` - disable the lockfile.
 - `PK_RUNNER_OFFLINE` - enter offline mode.
 - `PK_RUNNER_ENDPOINT` - change the endpoint.
+
+## Error Handling
+
+All errors should present a user-friendly dialog with:
+1. Specific error description
+2. "Try Again" and "Cancel" options
+
+Example error scenarios and messages:
+
+```
+Network Error
+Could not connect to PatchKit servers. Please check your internet connection.
+[Try Again] [Cancel]
+
+Installation Error
+Could not create installation directory. Please check permissions.
+[Try Again] [Cancel]
+
+Version Error
+Failed to download latest version. Server returned: 404
+[Try Again] [Cancel]
+```
+# Endpoints:
+
+The default host is `https://api2.patchkit.net/`.
+
+## Application Version Endpoint:
+
+"/1/apps/{SECRET}/versions/latest/id"
+
+It returns a json with the "id" field of the latest version (VERSION_ID)
+
+## Application Download Endpoint:
+
+"/1/apps/{SECRET}/versions/{VERSION_ID}/content_urls"
+
+It returns a json with the "url" field of the content urls:
+
+```json
+[
+    {
+        "size": 1563832028,
+        "url": "https://cdn-cf-ae.patchkit.net/resources/abc"
+    }
+]
+
+The URL is the direct url to a zip file that contains the launcher application.

@@ -78,4 +78,102 @@ Additional Notes
 	•	Test LockfileManager for proper creation, validation, and deletion of lockfiles.
 	•	Ensure error scenarios (e.g., invalid manifest, missing lockfile) are handled gracefully.
 
+## Installation Directory Management
+
+The installation directory varies by platform:
+
+- **Windows/Linux**: Create an "app" directory in the same location as the launcher
+- **macOS**: Use `~/Library/Application Support/PatchKit/SECRET_SLUG` where:
+  - SECRET_SLUG is the first 8 characters of the game's secret
+  - Use system APIs to locate the Application Support directory when possible
+
+The InstallDirManager class handles this logic and attempts to create the directory if it doesn't exist.
+
+## Version Management and File Cleanup
+
+When upgrading to a new version:
+
+1. Compare version strings directly (string comparison)
+2. For upgrades:
+   - Store the list of installed files during installation
+   - During upgrade, remove previously installed files in reverse order
+   - Do not remove non-empty directories
+   - Install new files from the package
+
+## Error Handling Updates
+
+All errors should display:
+1. A specific error message describing what went wrong
+2. A dialog with "Try Again" and "Cancel" options
+
+Common error scenarios:
+- Network connectivity issues
+- File system permissions
+- Installation directory creation failures
+- Version download failures
+- Package extraction errors
+
+## Network Status Management
+
+The NetworkManager handles online/offline status:
+
+1. Connection Check:
+   - Attempts to connect to https://network-test.patchkit.net/
+   - Expects 200 OK response with "ok" body
+   
+2. Retry Mechanism:
+   - Configurable number of retry attempts
+   - Displays progress during retries
+   - Allows user to:
+     - Retry connection
+     - Enter offline mode
+     - Exit application
+
+## Environment Variables
+
+The EnvironmentManager handles debugging environment variables:
+
+1. Security Warning:
+   - Displays a warning when any environment variable is detected
+   - Requires user confirmation to proceed
+   
+2. Supported Variables:
+   - PK_RUNNER_API_URL: Custom endpoint URL
+   - PK_RUNNER_DISABLE_LOCKFILE: Bypass lockfile check
+   - PK_RUNNER_OFFLINE: Force offline mode
+   - PK_RUNNER_ENDPOINT: Alternative endpoint
+
+## Permission Handling:
+   - Before creating directories, check write permissions
+   - If permissions are insufficient:
+     - Windows: Request admin privileges via UAC
+     - Linux/macOS: Display error message with instructions to fix permissions
+   - The PermissionHandler class manages these operations
+
+## API Response Handling
+
+The PatchKitClient handles two main API responses:
+
+1. Version endpoint (/1/apps/{SECRET}/versions/latest/id):
+```json
+{
+    "id": "VERSION_ID"
+}
+```
+
+2. Content URLs endpoint (/1/apps/{SECRET}/versions/{VERSION_ID}/content_urls):
+```json
+[
+    {
+        "size": 1563832028,
+        "url": "https://cdn-cf-ae.patchkit.net/resources/abc"
+    }
+]
+```
+
+Error handling should include:
+- Invalid JSON responses
+- Missing required fields
+- Network timeouts (configurable in NetworkManager)
+
 Does this address all the required updates, or should I elaborate further on any part?

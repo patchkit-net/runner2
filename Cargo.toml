@@ -1,0 +1,26 @@
+[package]
+name = "runner2"
+version = "0.1.0"
+edition = "2021"
+description = "A launcher downloader and executor application"
+
+[dependencies]
+eframe = { version = "0.24.1", features = ["persistence"] }  # egui framework
+reqwest = { version = "0.11", features = ["json", "stream"] }  # HTTP client
+tokio = { version = "1.34", features = ["full"] }  # Async runtime
+serde = { version = "1.0", features = ["derive"] }  # Serialization
+serde_json = "1.0"  # JSON handling
+zip = "0.6"  # ZIP file handling
+directories = "5.0"  # Platform-specific paths
+anyhow = "1.0"  # Error handling
+log = "0.4"  # Logging
+env_logger = "0.10"  # Logging implementation
+byteorder = "1.5"  # Binary data handling
+which = "5.0"  # Path finding
+futures-util = "0.3.30"  # Async utilities
+bytes = "1.0"  # Byte utilities
+base64 = "0.21.5"
+
+[dev-dependencies]
+tempfile = "3.8"  # Temporary files for testing
+mockall = "0.12"  # Mocking for tests
