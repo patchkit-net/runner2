@@ -1,3 +1,3 @@
-After each task, check:
-- If the project still can be built
-- If tests are still passing
+Before you finish, do check:
+- If the project still can be built (cargo build)
+- If tests are still passing (cargo test)
