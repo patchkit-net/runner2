@@ -14,6 +14,37 @@ pub struct FileManager {
     installed_files: Vec<PathBuf>,
 }
 
+#[derive(Debug)]
+pub struct VersionInfo {
+    pub version: String,
+    pub patcher_secret: String,
+}
+
+impl VersionInfo {
+    pub fn new(version: String, patcher_secret: String) -> Self {
+        Self {
+            version,
+            patcher_secret,
+        }
+    }
+
+    pub fn from_string(content: &str) -> Option<Self> {
+        let parts: Vec<&str> = content.trim().split(':').collect();
+        if parts.len() == 2 {
+            Some(Self {
+                patcher_secret: parts[0].to_string(),
+                version: parts[1].to_string(),
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        format!("{}:{}", self.patcher_secret, self.version)
+    }
+}
+
 impl FileManager {
     pub fn new(secret_slug: &str) -> Result<Self> {
         let install_dir = if cfg!(target_os = "macos") {
@@ -94,7 +125,7 @@ impl FileManager {
         Ok(())
     }
 
-    pub fn get_current_version(&self) -> Result<Option<String>> {
+    pub fn get_current_version(&self) -> Result<Option<VersionInfo>> {
         let version_file = self.install_dir.join("Patcher").join("version.txt");
         if !version_file.exists() {
             return Ok(None);
@@ -102,23 +133,36 @@ impl FileManager {
 
         let mut content = String::new();
         File::open(version_file)?.read_to_string(&mut content)?;
-        Ok(Some(content.trim().to_string()))
+        
+        // Try to parse as new format first
+        if let Some(version_info) = VersionInfo::from_string(&content) {
+            return Ok(Some(version_info));
+        }
+        
+        // If parsing failed, treat it as old format (version only)
+        // In this case, we return None to force redownload
+        debug!("Version file in old format, will force redownload");
+        Ok(None)
     }
 
-    pub fn save_version(&self, version: &str) -> Result<()> {
+    pub fn save_version(&self, version: &str, patcher_secret: &str) -> Result<()> {
+        let version_info = VersionInfo::new(version.to_string(), patcher_secret.to_string());
         let version_file = self.install_dir.join("Patcher").join("version.txt");
         // Make sure the Patcher directory exists
         if let Some(parent) = version_file.parent() {
             fs::create_dir_all(parent)?;
         }
         let mut file = File::create(version_file)?;
-        write!(file, "{}", version)?;
+        write!(file, "{}", version_info.to_string())?;
         Ok(())
     }
 
-    pub fn needs_update(&self, new_version: &str) -> Result<bool> {
+    pub fn needs_update(&self, new_version: &str, new_patcher_secret: &str) -> Result<bool> {
         match self.get_current_version()? {
-            Some(current_version) => Ok(current_version != new_version),
+            Some(current_version) => Ok(
+                current_version.version != new_version || 
+                current_version.patcher_secret != new_patcher_secret
+            ),
             None => Ok(true)
         }
     }
@@ -296,12 +340,41 @@ mod tests {
         assert!(manager.get_current_version().unwrap().is_none());
 
         // Save version and verify it
-        manager.save_version("1.0.0").unwrap();
-        assert_eq!(manager.get_current_version().unwrap().unwrap(), "1.0.0");
+        let test_version = "1.0.0";
+        let test_secret = "test_secret";
+        manager.save_version(test_version, test_secret).unwrap();
+        
+        let current = manager.get_current_version().unwrap().unwrap();
+        assert_eq!(current.version, test_version);
+        assert_eq!(current.patcher_secret, test_secret);
 
-        // Check if update is needed
-        assert!(manager.needs_update("2.0.0").unwrap());
-        assert!(!manager.needs_update("1.0.0").unwrap());
+        // Check if update is needed - same version, same secret
+        assert!(!manager.needs_update(test_version, test_secret).unwrap());
+        
+        // Check if update is needed - different version, same secret
+        assert!(manager.needs_update("2.0.0", test_secret).unwrap());
+        
+        // Check if update is needed - same version, different secret
+        assert!(manager.needs_update(test_version, "new_secret").unwrap());
+        
+        // Check if update is needed - different version, different secret
+        assert!(manager.needs_update("2.0.0", "new_secret").unwrap());
+    }
+
+    #[test]
+    fn test_version_info_parsing() {
+        // Test valid format
+        let info = VersionInfo::from_string("secret123:1.0.0").unwrap();
+        assert_eq!(info.patcher_secret, "secret123");
+        assert_eq!(info.version, "1.0.0");
+        
+        // Test invalid format
+        assert!(VersionInfo::from_string("invalid_format").is_none());
+        assert!(VersionInfo::from_string("too:many:parts").is_none());
+        
+        // Test to_string
+        let info = VersionInfo::new("1.0.0".to_string(), "secret123".to_string());
+        assert_eq!(info.to_string(), "secret123:1.0.0");
     }
 
     #[test]

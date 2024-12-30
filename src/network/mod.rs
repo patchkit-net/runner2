@@ -53,6 +53,13 @@ pub struct DownloadProgress {
     pub speed_kbps: f64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AppInfo {
+    pub id: i32,
+    pub patcher_secret: Option<String>,
+    pub secret: String,
+}
+
 impl NetworkManager {
     pub fn new() -> Self {
         let client = Client::builder()
@@ -161,6 +168,14 @@ impl NetworkManager {
         
         debug!("Download complete");
         Ok(())
+    }
+
+    pub async fn get_app_info(&self, secret: &str) -> Result<AppInfo> {
+        let url = format!("{}/1/apps/{}", self.api_url, secret);
+        debug!("Fetching app info from {}", url);
+        let response: AppInfo = self.client.get(&url).send().await?.json().await?;
+        debug!("Got app info response: {:?}", response);
+        Ok(response)
     }
 }
 

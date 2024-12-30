@@ -92,16 +92,28 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
     }
     info!("Network connection established");
 
+    // Get app info to determine the correct patcher secret
+    info!("Fetching app info");
+    sender.send(UiMessage::SetStatus("Fetching app info...".into()))
+        .map_err(|e| runner2::Error::Other(e.to_string()))?;
+    let app_info = network.get_app_info(&launcher_data.app_secret).await?;
+    info!("Got app info: {:?}", app_info);
+
+    // Determine which patcher secret to use
+    let patcher_secret = app_info.patcher_secret
+        .unwrap_or_else(|| launcher_data.patcher_secret.clone());
+    info!("Using patcher secret: {}", patcher_secret);
+
     // Get latest version
     info!("Fetching latest version");
     sender.send(UiMessage::SetStatus("Fetching latest version...".into()))
         .map_err(|e| runner2::Error::Other(e.to_string()))?;
-    let version = network.get_latest_version(&launcher_data.patcher_secret).await?;
+    let version = network.get_latest_version(&patcher_secret).await?;
     info!("Latest version: {}", version);
 
     // Check if we need to update
     info!("Checking if update is needed");
-    if !file_manager.needs_update(&version)? {
+    if !file_manager.needs_update(&version, &patcher_secret)? {
         info!("Already have the latest version {}, skipping update", version);
         
         // Launch the existing version
@@ -115,7 +127,7 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
     sender.send(UiMessage::SetStatus("Getting download URLs...".into()))
         .map_err(|e| runner2::Error::Other(e.to_string()))?;
     let content_urls = network
-        .get_content_urls(&launcher_data.patcher_secret, &version)
+        .get_content_urls(&patcher_secret, &version)
         .await?;
 
     if let Some(content) = content_urls.first() {
@@ -165,7 +177,7 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
 
         // Save the current version
         info!("Saving version information");
-        file_manager.save_version(&version)?;
+        file_manager.save_version(&version, &patcher_secret)?;
         info!("Version {} saved", version);
 
         // Clean up the temporary file
