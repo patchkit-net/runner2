@@ -80,6 +80,7 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
     let app_slug = &launcher_data.app_secret[..8];
     let mut file_manager = FileManager::new(app_slug)?;
     let launcher = Launcher::new();
+    let extract_path = file_manager.get_install_dir().join("Patcher");
 
     // Check network connection
     info!("Checking network connection");
@@ -97,6 +98,49 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
         .map_err(|e| runner2::Error::Other(e.to_string()))?;
     let version = network.get_latest_version(&launcher_data.patcher_secret).await?;
     info!("Latest version: {}", version);
+
+    // Check if we need to update
+    info!("Checking if update is needed");
+    if !file_manager.needs_update(&version)? {
+        info!("Already have the latest version {}, skipping update", version);
+        
+        // Even though we skip the update, we still need to run the launcher
+        info!("Reading manifest file");
+        let manifest_path = extract_path.join("patcher.manifest");
+        let manifest_content = std::fs::read_to_string(&manifest_path)
+            .map_err(|e| {
+                error!("Failed to read manifest: {}", e);
+                runner2::Error::Manifest(format!("Failed to read manifest: {}", e))
+            })?;
+        let mut manifest = ManifestManager::new(&manifest_content)?;
+        info!("Successfully read manifest");
+
+        // Set up manifest variables
+        info!("Setting up manifest variables");
+        manifest.set_variable("exedir", extract_path.to_string_lossy().into());
+        manifest.set_variable("installdir", file_manager.get_install_dir().to_string_lossy().into());
+        let encoded_secret = config::secret::encode_secret(&launcher_data.app_secret);
+        manifest.set_variable("secret", encoded_secret);
+        manifest.set_variable("lockfile", "launcher.lock".into());
+        manifest.set_variable("network-status", "online".into());
+
+        // Launch the executable
+        info!("Launching executable");
+        sender.send(UiMessage::SetStatus("Launching...".into()))
+            .map_err(|e| runner2::Error::Other(e.to_string()))?;
+        let target = manifest.get_target()?;
+        let arguments = manifest.get_arguments()?;
+        info!("Launching {} with arguments: {:?}", target.display(), arguments);
+        launcher.launch_executable(target, &arguments)?;
+        info!("Launcher started successfully");
+
+        sender.send(UiMessage::SetProgress(1.0))
+            .map_err(|e| runner2::Error::Other(e.to_string()))?;
+        sender.send(UiMessage::Close)
+            .map_err(|e| runner2::Error::Other(e.to_string()))?;
+        return Ok(());
+    }
+    info!("Update needed to version {}", version);
 
     // Get download URLs
     info!("Getting download URLs");
@@ -146,6 +190,11 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
         let extract_path = file_manager.get_install_dir().join("Patcher");
         file_manager.extract_zip(&download_path, &extract_path)?;
         info!("Extraction complete: {}", extract_path.display());
+
+        // Save the current version
+        info!("Saving version information");
+        file_manager.save_version(&version)?;
+        info!("Version {} saved", version);
 
         // Clean up the temporary file
         if let Err(e) = temp_file.close() {
