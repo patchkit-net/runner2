@@ -95,7 +95,7 @@ impl FileManager {
     }
 
     pub fn get_current_version(&self) -> Result<Option<String>> {
-        let version_file = self.install_dir.join("version.txt");
+        let version_file = self.install_dir.join("Patcher").join("version.txt");
         if !version_file.exists() {
             return Ok(None);
         }
@@ -106,7 +106,11 @@ impl FileManager {
     }
 
     pub fn save_version(&self, version: &str) -> Result<()> {
-        let version_file = self.install_dir.join("version.txt");
+        let version_file = self.install_dir.join("Patcher").join("version.txt");
+        // Make sure the Patcher directory exists
+        if let Some(parent) = version_file.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let mut file = File::create(version_file)?;
         write!(file, "{}", version)?;
         Ok(())
