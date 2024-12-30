@@ -14,15 +14,137 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use tokio::runtime::Runtime;
 use tempfile;
+use std::fs::OpenOptions;
+use std::env;
+use directories::BaseDirs;
 
 const WINDOW_WIDTH: f32 = 400.0;
 const WINDOW_HEIGHT: f32 = 100.0;
 
+fn get_log_file_path() -> Result<PathBuf> {
+    if cfg!(target_os = "macos") {
+        let base_dirs = BaseDirs::new()
+            .ok_or_else(|| runner2::Error::FileSystem("Could not determine base directories".into()))?;
+        
+        let log_dir = base_dirs
+            .data_dir()
+            .join("PatchKit")
+            .join("Apps");
+            
+        // Create the directory if it doesn't exist
+        std::fs::create_dir_all(&log_dir)?;
+        
+        Ok(log_dir.join("launcher-log.txt"))
+    } else {
+        // For Windows and Linux, use the directory where the executable is located
+        let exe_dir = env::current_exe()?
+            .parent()
+            .ok_or_else(|| runner2::Error::Other("Failed to get executable directory".into()))?
+            .to_path_buf();
+            
+        Ok(exe_dir.join("launcher-log.txt"))
+    }
+}
+
+#[cfg(windows)]
+fn is_elevated() -> bool {
+    use winapi::um::winnt::TOKEN_ELEVATION;
+    use winapi::um::securitybaseapi::GetTokenInformation;
+    use winapi::um::processthreadsapi::{GetCurrentProcess, OpenProcessToken};
+    use winapi::um::winnt::TOKEN_QUERY;
+    use std::ptr::null_mut;
+
+    unsafe {
+        let mut token = null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return false;
+        }
+
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut size = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
+        
+        GetTokenInformation(
+            token,
+            winapi::um::winnt::TokenElevation,
+            &mut elevation as *mut _ as *mut _,
+            size,
+            &mut size,
+        ) != 0 && elevation.TokenIsElevated != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn is_elevated() -> bool {
+    // On Unix systems, we don't need elevation for writing next to the executable
+    true
+}
+
+#[cfg(windows)]
+fn restart_as_admin() -> Result<()> {
+    use std::process::Command;
+    use winapi::um::shellapi::ShellExecuteW;
+    use winapi::um::winuser::SW_NORMAL;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ffi::OsStr;
+
+    let exe_path = env::current_exe()
+        .map_err(|e| runner2::Error::Other(format!("Failed to get executable path: {}", e)))?;
+
+    let operation: Vec<u16> = OsStr::new("runas\0").encode_wide().collect();
+    let file: Vec<u16> = exe_path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let parameters: Vec<u16> = OsStr::new("\0").encode_wide().collect();
+    let directory: Vec<u16> = exe_path
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
+    unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            parameters.as_ptr(),
+            directory.as_ptr(),
+            SW_NORMAL,
+        );
+    }
+
+    std::process::exit(0);
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_millis()
-        .init();
+    // Get the log file path
+    let log_path = get_log_file_path()?;
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path);
+
+    // If we failed to create/open the log file and we're on Windows and not elevated
+    #[cfg(windows)]
+    if log_file.is_err() && !is_elevated() {
+        // Can't use info! here as logger isn't initialized yet
+        eprintln!("Failed to create log file, attempting to restart with admin privileges");
+        restart_as_admin()?;
+        return Ok(());
+    }
+
+    // Set up logging to both stderr and file if available
+    let mut builder = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info"),
+    );
+    builder.format_timestamp_millis();
+
+    // If we successfully opened the log file, add it as a target
+    if let Ok(log_file) = log_file {
+        builder.target(env_logger::Target::Pipe(Box::new(log_file)));
+    }
+
+    builder.init();
 
     info!("Starting PatchKit Runner");
 
@@ -245,11 +367,64 @@ fn launch_from_manifest(
 mod tests {
     use super::*;
     use std::sync::mpsc::channel;
+    use std::fs;
+    use tempfile::TempDir;
+    use std::io::Write;
+    use log::LevelFilter;
 
     #[test]
     fn test_message_sending() {
         let (tx, rx) = channel();
         tx.send(UiMessage::SetProgress(0.5)).unwrap();
         assert!(matches!(rx.recv().unwrap(), UiMessage::SetProgress(0.5)));
+    }
+
+    #[test]
+    fn test_log_file_creation() {
+        // Create a temporary directory for testing
+        let temp_dir = TempDir::new().unwrap();
+        let log_path = temp_dir.path().join("launcher-log.txt");
+
+        // Try to create and write to the log file
+        let log_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .unwrap();
+
+        // Set up logging with a custom writer that flushes after each write
+        struct FlushingWriter<W: Write>(W);
+        impl<W: Write> Write for FlushingWriter<W> {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                let result = self.0.write(buf);
+                self.0.flush()?;
+                result
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.0.flush()
+            }
+        }
+
+        let flushing_writer = FlushingWriter(log_file);
+
+        // Set up logging
+        let mut builder = env_logger::Builder::new();
+        builder.format_timestamp_millis();
+        builder.filter_level(LevelFilter::Info);
+        builder.target(env_logger::Target::Pipe(Box::new(flushing_writer)));
+        builder.init();
+
+        // Write some log messages
+        log::info!("Test log message 1");
+        log::error!("Test error message");
+        log::info!("Test log message 2");
+
+        // Read the log file contents
+        let contents = fs::read_to_string(&log_path).unwrap();
+
+        // Verify log messages were written
+        assert!(contents.contains("Test log message 1"), "Log file contents: {}", contents);
+        assert!(contents.contains("Test error message"), "Log file contents: {}", contents);
+        assert!(contents.contains("Test log message 2"), "Log file contents: {}", contents);
     }
 }
