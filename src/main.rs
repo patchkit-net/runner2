@@ -80,7 +80,7 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
     let app_slug = &launcher_data.app_secret[..8];
     let mut file_manager = FileManager::new(app_slug)?;
     let launcher = Launcher::new();
-    let extract_path = file_manager.get_install_dir().join("Patcher");
+    let extract_path = FileManager::get_patcher_dir(app_slug)?;
 
     // Check network connection
     info!("Checking network connection");
@@ -171,7 +171,7 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
         file_manager.remove_old_files()?;
         
         // Extract to Patcher directory in the install directory
-        let extract_path = file_manager.get_install_dir().join("Patcher");
+        let extract_path = FileManager::get_patcher_dir(app_slug)?;
         file_manager.extract_zip(&download_path, &extract_path)?;
         info!("Extraction complete: {}", extract_path.display());
 
@@ -204,7 +204,7 @@ fn launch_from_manifest(
     sender: &Sender<UiMessage>,
 ) -> Result<()> {
     // Read manifest
-    info!("Reading manifest file");
+    info!("Reading manifest file {}", extract_path.join("patcher.manifest").display());
     let manifest_path = extract_path.join("patcher.manifest");
     let manifest_content = std::fs::read_to_string(&manifest_path)
         .map_err(|e| {

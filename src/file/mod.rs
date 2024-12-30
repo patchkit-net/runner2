@@ -12,6 +12,7 @@ use log::{debug, info, warn};
 pub struct FileManager {
     install_dir: PathBuf,
     installed_files: Vec<PathBuf>,
+    secret_slug: String,
 }
 
 #[derive(Debug)]
@@ -46,6 +47,28 @@ impl VersionInfo {
 }
 
 impl FileManager {
+    pub fn get_patcher_dir(secret_slug: &str) -> Result<PathBuf> {
+        if cfg!(target_os = "macos") {
+            let base_dirs = BaseDirs::new()
+                .ok_or_else(|| crate::Error::FileSystem("Could not determine base directories".into()))?;
+            
+            Ok(base_dirs
+                .data_dir()
+                .join("PatchKit")
+                .join("Apps")
+                .join(secret_slug)
+                .join("Patcher"))
+        } else {
+            // Get the directory where the runner executable is located
+            let exe_path = std::env::current_exe()?;
+            let runner_dir = exe_path.parent().ok_or_else(|| {
+                crate::Error::FileSystem("Failed to get parent directory of the current executable".into())
+            })?;
+            
+            Ok(runner_dir.join("Patcher"))
+        }
+    }
+
     pub fn new(secret_slug: &str) -> Result<Self> {
         let install_dir = if cfg!(target_os = "macos") {
             let base_dirs = BaseDirs::new()
@@ -56,14 +79,19 @@ impl FileManager {
                 .join("PatchKit")
                 .join("Apps")
                 .join(secret_slug)
+                .join("Data")
         } else {
             // For Windows and Linux, use current directory and create app directory
-            std::env::current_dir()?.join("app")
+            std::env::current_exe()?
+                .parent()
+                .ok_or_else(|| crate::Error::FileSystem("Failed to get parent directory of the current executable".into()))?
+                .join("app")
         };
 
         let mut manager = Self {
             install_dir,
             installed_files: Vec::new(),
+            secret_slug: secret_slug.to_string(),
         };
         
         // Try to load the list of installed files, but it's fine if it doesn't exist
@@ -75,7 +103,7 @@ impl FileManager {
     }
 
     fn get_installed_files_path(&self) -> PathBuf {
-        self.install_dir.join("Patcher").join("installed_files.txt")
+        Self::get_patcher_dir(&self.secret_slug).unwrap().join("installed_files.txt")
     }
 
     fn load_installed_files(&mut self) -> Result<()> {
@@ -89,7 +117,7 @@ impl FileManager {
         let reader = BufReader::new(file);
         self.installed_files.clear();
         
-        let patcher_dir = self.install_dir.join("Patcher");
+        let patcher_dir = Self::get_patcher_dir(&self.secret_slug)?;
         for line in io::BufRead::lines(reader) {
             let line = line?;
             self.installed_files.push(patcher_dir.join(line));
@@ -104,7 +132,7 @@ impl FileManager {
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
         
-        let patcher_dir = self.install_dir.join("Patcher");
+        let patcher_dir = Self::get_patcher_dir(&self.secret_slug)?;
         for path in &self.installed_files {
             if let Ok(relative) = path.strip_prefix(&patcher_dir) {
                 writeln!(writer, "{}", relative.to_string_lossy())?;
@@ -127,16 +155,21 @@ impl FileManager {
     }
 
     pub fn get_current_version(&self) -> Result<Option<VersionInfo>> {
-        let version_file = self.install_dir.join("Patcher").join("version.txt");
+        let version_file = Self::get_patcher_dir(&self.secret_slug)?.join("version.txt");
+        debug!("Checking version file: {}", version_file.display());
+        
         if !version_file.exists() {
+            debug!("Version file does not exist");
             return Ok(None);
         }
 
         let mut content = String::new();
         File::open(version_file)?.read_to_string(&mut content)?;
+        debug!("Read version file content: {}", content);
         
         // Try to parse as new format first
         if let Some(version_info) = VersionInfo::from_string(&content) {
+            debug!("Successfully parsed version info: {:?}", version_info);
             return Ok(Some(version_info));
         }
         
@@ -148,13 +181,17 @@ impl FileManager {
 
     pub fn save_version(&self, version: &str, patcher_secret: &str) -> Result<()> {
         let version_info = VersionInfo::new(version.to_string(), patcher_secret.to_string());
-        let version_file = self.install_dir.join("Patcher").join("version.txt");
+        let version_file = Self::get_patcher_dir(&self.secret_slug)?.join("version.txt");
+        debug!("Saving version to file: {}", version_file.display());
+        
         // Make sure the Patcher directory exists
         if let Some(parent) = version_file.parent() {
             fs::create_dir_all(parent)?;
         }
         let mut file = File::create(version_file)?;
-        write!(file, "{}", version_info.to_string())?;
+        let content = version_info.to_string();
+        debug!("Writing version content: {}", content);
+        write!(file, "{}", content)?;
         Ok(())
     }
 
@@ -307,12 +344,18 @@ mod tests {
 
     #[test]
     fn test_extract_zip() {
-        let mut manager = FileManager::new("test123").unwrap();
         let temp_dir = tempdir().unwrap();
-        manager.install_dir = temp_dir.path().to_path_buf(); // Override install dir for testing
+        let secret_slug = "test123";
+        
+        // Mock the current executable path for testing
+        std::env::set_current_dir(temp_dir.path()).unwrap();
+        
+        let mut manager = FileManager::new(secret_slug).unwrap();
+        manager.install_dir = temp_dir.path().join("app");
+        manager.create_install_dir().unwrap();
         
         let zip_path = temp_dir.path().join("test.zip");
-        let extract_dir = temp_dir.path().join("Patcher");
+        let extract_dir = FileManager::get_patcher_dir(secret_slug).unwrap();
         fs::create_dir_all(&extract_dir).unwrap();
 
         // Create a test zip file
@@ -328,17 +371,31 @@ mod tests {
 
     #[test]
     fn test_version_management() {
-        let manager = FileManager::new("test123").unwrap();
         let temp_dir = tempdir().unwrap();
-        let install_dir = temp_dir.path().join("app");
-        fs::create_dir_all(&install_dir).unwrap();
+        let secret_slug = "test123";
         
-        let mut manager = FileManager::new("test123").unwrap();
-        manager.install_dir = install_dir;
+        debug!("Test directory: {}", temp_dir.path().display());
+        
+        // Mock the current executable path for testing
+        std::env::set_current_dir(temp_dir.path()).unwrap();
+        
+        // Make sure the Patcher directory doesn't exist
+        let patcher_dir = FileManager::get_patcher_dir(secret_slug).unwrap();
+        if patcher_dir.exists() {
+            fs::remove_dir_all(&patcher_dir).unwrap();
+        }
+        debug!("Patcher dir: {}", patcher_dir.display());
+        
+        let mut manager = FileManager::new(secret_slug).unwrap();
+        manager.install_dir = temp_dir.path().join("app");
         manager.create_install_dir().unwrap();
+        
+        debug!("Install dir: {}", manager.install_dir.display());
 
         // Initially there should be no version
-        assert!(manager.get_current_version().unwrap().is_none());
+        let version_result = manager.get_current_version().unwrap();
+        debug!("Initial version: {:?}", version_result);
+        assert!(version_result.is_none());
 
         // Save version and verify it
         let test_version = "1.0.0";
@@ -346,6 +403,7 @@ mod tests {
         manager.save_version(test_version, test_secret).unwrap();
         
         let current = manager.get_current_version().unwrap().unwrap();
+        debug!("Current version after save: {:?}", current);
         assert_eq!(current.version, test_version);
         assert_eq!(current.patcher_secret, test_secret);
 
@@ -381,12 +439,17 @@ mod tests {
     #[test]
     fn test_file_cleanup() {
         let temp_dir = tempdir().unwrap();
-        let mut manager = FileManager::new("test123").unwrap();
-        manager.install_dir = temp_dir.path().to_path_buf(); // Override install dir for testing
+        let secret_slug = "test123";
+        
+        // Mock the current executable path for testing
+        std::env::set_current_dir(temp_dir.path()).unwrap();
+        
+        let mut manager = FileManager::new(secret_slug).unwrap();
+        manager.install_dir = temp_dir.path().join("app");
         manager.create_install_dir().unwrap();
         
         let zip_path = temp_dir.path().join("test.zip");
-        let extract_dir = temp_dir.path().join("Patcher");
+        let extract_dir = FileManager::get_patcher_dir(secret_slug).unwrap();
         fs::create_dir_all(&extract_dir).unwrap();
 
         // Create a test zip file with multiple files and directories
@@ -425,16 +488,25 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let secret_slug = "test123";
         
+        debug!("Test directory: {}", temp_dir.path().display());
+        
+        // Mock the current executable path for testing
+        std::env::set_current_dir(temp_dir.path()).unwrap();
+        
         // Create first instance and extract files
         {
             let mut manager = FileManager::new(secret_slug).unwrap();
-            manager.install_dir = temp_dir.path().to_path_buf(); // Override install dir for testing
+            manager.install_dir = temp_dir.path().join("app"); // Override install dir for testing
             manager.create_install_dir().unwrap();
+            
+            debug!("Install dir: {}", manager.install_dir.display());
             
             // Create and extract a test zip
             let zip_path = temp_dir.path().join("test.zip");
-            let extract_dir = temp_dir.path().join("Patcher");
+            let extract_dir = FileManager::get_patcher_dir(secret_slug).unwrap();
             fs::create_dir_all(&extract_dir).unwrap();
+            
+            debug!("Extract dir: {}", extract_dir.display());
             
             let mut zip = zip::ZipWriter::new(File::create(&zip_path).unwrap());
             
@@ -447,16 +519,26 @@ mod tests {
 
             // Extract and verify files are saved
             manager.extract_zip(&zip_path, &extract_dir).unwrap();
-            assert!(manager.get_installed_files_path().exists());
+            let installed_files_path = manager.get_installed_files_path();
+            debug!("Installed files path: {}", installed_files_path.display());
+            assert!(installed_files_path.exists());
         }
 
         // Create second instance and verify files are loaded
         {
             let mut manager = FileManager::new(secret_slug).unwrap();
-            manager.install_dir = temp_dir.path().to_path_buf(); // Override install dir for testing
+            manager.install_dir = temp_dir.path().join("app");
+            
+            debug!("Second instance install dir: {}", manager.install_dir.display());
+            debug!("Second instance installed files path: {}", manager.get_installed_files_path().display());
             
             // Load installed files explicitly since we're using a custom install_dir
             manager.load_installed_files().unwrap();
+            
+            debug!("Loaded {} installed files", manager.installed_files.len());
+            for file in &manager.installed_files {
+                debug!("Found installed file: {}", file.display());
+            }
             
             assert!(!manager.installed_files.is_empty());
             assert!(manager.installed_files.iter().any(|p| p.file_name().unwrap().to_str().unwrap() == "test2.txt"));
