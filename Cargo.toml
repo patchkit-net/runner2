@@ -25,3 +25,18 @@ winapi = { version = "0.3", features = ["winuser"] }  # Windows API bindings
 
 [dev-dependencies]
 mockall = "0.12"  # Mocking for tests
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }  # Windows API bindings
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"  # Windows resource handling
+
+# This is what prevents the console window from appearing
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[[bin]]
+name = "runner2"
+path = "src/main.rs"
+windows_subsystem = "windows"  # This ensures no console window appears on Windows
