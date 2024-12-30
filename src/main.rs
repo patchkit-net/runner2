@@ -10,7 +10,7 @@ use runner2::{
 
 use eframe::egui::ViewportBuilder;
 use log::{info, warn, error};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::sync::mpsc::Sender;
 use tokio::runtime::Runtime;
 use tempfile;
