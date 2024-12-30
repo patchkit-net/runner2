@@ -5,6 +5,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use zip::ZipArchive;
+#[cfg(target_os = "macos")]
+use std::os::unix::fs::PermissionsExt;
 
 pub struct FileManager {
     install_dir: PathBuf,
@@ -57,6 +59,16 @@ impl FileManager {
                 }
                 let mut outfile = File::create(&outpath)?;
                 io::copy(&mut file, &mut outfile)?;
+
+                #[cfg(target_os = "macos")]
+                {
+                    // Check if the file is in Contents/MacOS directory
+                    if outpath.to_string_lossy().contains("Contents/MacOS") {
+                        // Set executable permissions (read/write/execute for owner, read/execute for group and others)
+                        let perms = fs::Permissions::from_mode(0o755);
+                        fs::set_permissions(&outpath, perms)?;
+                    }
+                }
             }
 
             self.installed_files.push(outpath);
