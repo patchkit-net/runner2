@@ -1,7 +1,7 @@
 use crate::Result;
 use directories::BaseDirs;
 use std::fs::{self, File};
-use std::io::{self, Write, Read};
+use std::io::{self, Write, Read, BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use zip::ZipArchive;
@@ -29,10 +29,60 @@ impl FileManager {
             PathBuf::from("app")
         };
 
-        Ok(Self {
+        let mut manager = Self {
             install_dir,
             installed_files: Vec::new(),
-        })
+        };
+        
+        // Try to load the list of installed files, but it's fine if it doesn't exist
+        if let Err(e) = manager.load_installed_files() {
+            debug!("Failed to load installed files list: {}", e);
+        }
+
+        Ok(manager)
+    }
+
+    fn get_installed_files_path(&self) -> PathBuf {
+        self.install_dir.join("Patcher").join("installed_files.txt")
+    }
+
+    fn load_installed_files(&mut self) -> Result<()> {
+        let path = self.get_installed_files_path();
+        if !path.exists() {
+            debug!("No installed files list found at {}", path.display());
+            return Ok(());
+        }
+
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        self.installed_files.clear();
+        
+        let patcher_dir = self.install_dir.join("Patcher");
+        for line in io::BufRead::lines(reader) {
+            let line = line?;
+            self.installed_files.push(patcher_dir.join(line));
+        }
+        
+        debug!("Loaded {} installed files", self.installed_files.len());
+        Ok(())
+    }
+
+    fn save_installed_files(&self) -> Result<()> {
+        let path = self.get_installed_files_path();
+        let file = File::create(path)?;
+        let mut writer = BufWriter::new(file);
+        
+        let patcher_dir = self.install_dir.join("Patcher");
+        for path in &self.installed_files {
+            if let Ok(relative) = path.strip_prefix(&patcher_dir) {
+                writeln!(writer, "{}", relative.to_string_lossy())?;
+            } else {
+                warn!("Failed to make path relative: {}", path.display());
+            }
+        }
+        
+        debug!("Saved {} installed files", self.installed_files.len());
+        Ok(())
     }
 
     pub fn get_install_dir(&self) -> &Path {
@@ -70,7 +120,7 @@ impl FileManager {
     }
 
     pub fn extract_zip<P: AsRef<Path>>(&mut self, zip_path: P, destination: P) -> Result<()> {
-        let file = File::open(zip_path)?;
+        let file = File::open(&zip_path)?;
         let mut archive = ZipArchive::new(file)?;
 
         // Clear the installed files list before new extraction
@@ -104,11 +154,19 @@ impl FileManager {
             self.installed_files.push(outpath);
         }
 
+        // Save the list of installed files
+        self.save_installed_files()?;
+
         Ok(())
     }
 
     pub fn remove_old_files(&self) -> Result<()> {
-        info!("Removing old files");
+        if self.installed_files.is_empty() {
+            debug!("No list of installed files, skipping cleanup");
+            return Ok(());
+        }
+
+        info!("Removing {} old files", self.installed_files.len());
         for path in self.installed_files.iter().rev() {
             if path.is_file() {
                 if let Err(e) = fs::remove_file(path) {
@@ -202,8 +260,11 @@ mod tests {
     fn test_extract_zip() {
         let mut manager = FileManager::new("test123").unwrap();
         let temp_dir = tempdir().unwrap();
+        manager.install_dir = temp_dir.path().to_path_buf(); // Override install dir for testing
+        
         let zip_path = temp_dir.path().join("test.zip");
-        let extract_dir = temp_dir.path().join("extracted");
+        let extract_dir = temp_dir.path().join("Patcher");
+        fs::create_dir_all(&extract_dir).unwrap();
 
         // Create a test zip file
         let mut zip = zip::ZipWriter::new(File::create(&zip_path).unwrap());
@@ -219,6 +280,12 @@ mod tests {
     #[test]
     fn test_version_management() {
         let manager = FileManager::new("test123").unwrap();
+        let temp_dir = tempdir().unwrap();
+        let install_dir = temp_dir.path().join("app");
+        fs::create_dir_all(&install_dir).unwrap();
+        
+        let mut manager = FileManager::new("test123").unwrap();
+        manager.install_dir = install_dir;
         manager.create_install_dir().unwrap();
 
         // Initially there should be no version
@@ -231,17 +298,18 @@ mod tests {
         // Check if update is needed
         assert!(manager.needs_update("2.0.0").unwrap());
         assert!(!manager.needs_update("1.0.0").unwrap());
-
-        // Clean up
-        fs::remove_dir_all(manager.get_install_dir()).unwrap_or(());
     }
 
     #[test]
     fn test_file_cleanup() {
-        let mut manager = FileManager::new("test123").unwrap();
         let temp_dir = tempdir().unwrap();
+        let mut manager = FileManager::new("test123").unwrap();
+        manager.install_dir = temp_dir.path().to_path_buf(); // Override install dir for testing
+        manager.create_install_dir().unwrap();
+        
         let zip_path = temp_dir.path().join("test.zip");
-        let extract_dir = temp_dir.path().join("extract");
+        let extract_dir = temp_dir.path().join("Patcher");
+        fs::create_dir_all(&extract_dir).unwrap();
 
         // Create a test zip file with multiple files and directories
         let mut zip = zip::ZipWriter::new(File::create(&zip_path).unwrap());
@@ -272,5 +340,55 @@ mod tests {
         assert!(!extract_dir.join("test2.txt").exists());
         // Directory should be removed as it's empty
         assert!(!extract_dir.join("test_dir").exists());
+    }
+
+    #[test]
+    fn test_installed_files_persistence() {
+        let temp_dir = tempdir().unwrap();
+        let secret_slug = "test123";
+        
+        // Create first instance and extract files
+        {
+            let mut manager = FileManager::new(secret_slug).unwrap();
+            manager.install_dir = temp_dir.path().to_path_buf(); // Override install dir for testing
+            manager.create_install_dir().unwrap();
+            
+            // Create and extract a test zip
+            let zip_path = temp_dir.path().join("test.zip");
+            let extract_dir = temp_dir.path().join("Patcher");
+            fs::create_dir_all(&extract_dir).unwrap();
+            
+            let mut zip = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+            
+            zip.add_directory("test_dir", Default::default()).unwrap();
+            zip.start_file("test_dir/test1.txt", Default::default()).unwrap();
+            zip.write_all(b"test content 1").unwrap();
+            zip.start_file("test2.txt", Default::default()).unwrap();
+            zip.write_all(b"test content 2").unwrap();
+            zip.finish().unwrap();
+
+            // Extract and verify files are saved
+            manager.extract_zip(&zip_path, &extract_dir).unwrap();
+            assert!(manager.get_installed_files_path().exists());
+        }
+
+        // Create second instance and verify files are loaded
+        {
+            let mut manager = FileManager::new(secret_slug).unwrap();
+            manager.install_dir = temp_dir.path().to_path_buf(); // Override install dir for testing
+            
+            // Load installed files explicitly since we're using a custom install_dir
+            manager.load_installed_files().unwrap();
+            
+            assert!(!manager.installed_files.is_empty());
+            assert!(manager.installed_files.iter().any(|p| p.file_name().unwrap().to_str().unwrap() == "test2.txt"));
+            assert!(manager.installed_files.iter().any(|p| p.file_name().unwrap().to_str().unwrap() == "test1.txt"));
+            
+            // Remove files and verify they're gone
+            manager.remove_old_files().unwrap();
+            for path in &manager.installed_files {
+                assert!(!path.exists());
+            }
+        }
     }
 } 

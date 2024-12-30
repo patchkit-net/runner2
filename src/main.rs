@@ -186,6 +186,10 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
         sender.send(UiMessage::SetStatus("Extracting launcher...".into()))
             .map_err(|e| runner2::Error::Other(e.to_string()))?;
         
+        // Remove old files before extracting new ones
+        info!("Removing old files");
+        file_manager.remove_old_files()?;
+        
         // Extract to Patcher directory in the install directory
         let extract_path = file_manager.get_install_dir().join("Patcher");
         file_manager.extract_zip(&download_path, &extract_path)?;
