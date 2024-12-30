@@ -20,7 +20,14 @@ pub struct RunnerApp {
 }
 
 impl RunnerApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Set window size
+        cc.egui_ctx.set_pixels_per_point(1.0);
+        cc.egui_ctx.set_visuals(egui::Visuals::dark());
+        
+        // Set initial window size
+        cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(400.0, 100.0)));
+
         let (sender, receiver) = channel();
         
         Self {
@@ -59,9 +66,6 @@ impl eframe::App for RunnerApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
-                ui.heading("PatchKit Runner");
-                ui.add_space(20.0);
-                
                 if let Some(error) = &self.error {
                     ui.label(RichText::new(error).color(Color32::RED));
                     if ui.button("Close").clicked() {
