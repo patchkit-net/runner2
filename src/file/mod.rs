@@ -56,8 +56,19 @@ impl FileManager {
                 .join("PatchKit")
                 .join("Apps")
                 .join(secret_slug)
+        } else if cfg!(target_os = "windows") {
+            let base_dirs = BaseDirs::new()
+                .ok_or_else(|| crate::Error::FileSystem("Could not determine base directories".into()))?;
+            
+            base_dirs
+                .data_local_dir()
+                .join("PatchKit")
+                .join("Apps")
+                .join(secret_slug)
         } else {
-            PathBuf::from("app")
+            // For other platforms, use current directory
+            std::env::current_dir()?
+                .join("app")
         };
 
         let mut manager = Self {
