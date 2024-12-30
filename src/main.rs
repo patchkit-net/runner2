@@ -67,14 +67,14 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
     let network = NetworkManager::new();
     
     // Read the .dat file first to get the app secret
-    info!("Reading test.dat file");
-    let dat_file = std::fs::File::open("test.dat")
+    info!("Reading launcher.dat file");
+    let dat_file = std::fs::File::open("launcher.dat")
         .map_err(|e| {
-            error!("Failed to open test.dat: {}", e);
-            runner2::Error::DatFile(format!("Failed to open test.dat: {}", e))
+            error!("Failed to open launcher.dat: {}", e);
+            runner2::Error::DatFile(format!("Failed to open launcher.dat: {}", e))
         })?;
     let launcher_data = LauncherData::from_binary(dat_file)?;
-    info!("Successfully read test.dat");
+    info!("Successfully read launcher.dat");
     
     // Initialize file manager with the first 8 chars of app secret
     let app_slug = &launcher_data.app_secret[..8];
