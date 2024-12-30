@@ -12,8 +12,6 @@ use bytes::Bytes;
 const DEFAULT_API_URL: &str = "https://api2.patchkit.net";
 const NETWORK_TEST_URLS: &[&str] = &[
     "https://network-test.patchkit.net",
-    "https://api2.patchkit.net",
-    "https://google.com",
 ];
 
 #[derive(Debug, Clone)]
