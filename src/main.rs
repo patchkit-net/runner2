@@ -1,3 +1,5 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use runner2::{
     config::{self, LauncherData},
     file::FileManager,
