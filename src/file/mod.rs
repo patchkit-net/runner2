@@ -20,6 +20,7 @@ impl FileManager {
             base_dirs
                 .data_dir()
                 .join("PatchKit")
+                .join("Apps")
                 .join(secret_slug)
         } else {
             PathBuf::from("app")

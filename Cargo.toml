@@ -20,7 +20,7 @@ which = "5.0"  # Path finding
 futures-util = "0.3.30"  # Async utilities
 bytes = "1.0"  # Byte utilities
 base64 = "0.21.5"
+tempfile = "3.8"  # Temporary files
 
 [dev-dependencies]
-tempfile = "3.8"  # Temporary files for testing
 mockall = "0.12"  # Mocking for tests

@@ -13,6 +13,7 @@ use log::{info, warn, error};
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use tokio::runtime::Runtime;
+use tempfile;
 
 const WINDOW_WIDTH: f32 = 400.0;
 const WINDOW_HEIGHT: f32 = 200.0;
@@ -112,7 +113,14 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
         info!("Downloading launcher package");
         sender.send(UiMessage::SetStatus("Downloading launcher...".into()))
             .map_err(|e| runner2::Error::Other(e.to_string()))?;
-        let download_path = PathBuf::from("launcher.zip");
+        
+        // Create a temporary file for download
+        let temp_file = tempfile::Builder::new()
+            .prefix("launcher")
+            .suffix(".zip")
+            .tempfile()
+            .map_err(|e| runner2::Error::Other(format!("Failed to create temporary file: {}", e)))?;
+        let download_path = temp_file.path().to_path_buf();
         
         let sender_clone = sender.clone();
         network.download_file(&content.url, &download_path, move |progress| {
@@ -133,9 +141,17 @@ async fn run_launcher(sender: Sender<UiMessage>) -> Result<()> {
         info!("Extracting launcher package");
         sender.send(UiMessage::SetStatus("Extracting launcher...".into()))
             .map_err(|e| runner2::Error::Other(e.to_string()))?;
-        let extract_path = PathBuf::from("launcher");
+        
+        // Extract to Patcher directory in the install directory
+        let extract_path = file_manager.get_install_dir().join("Patcher");
         file_manager.extract_zip(&download_path, &extract_path)?;
         info!("Extraction complete: {}", extract_path.display());
+
+        // Clean up the temporary file
+        if let Err(e) = temp_file.close() {
+            warn!("Failed to remove temporary file: {}", e);
+            // Non-critical error, continue execution
+        }
 
         // Read manifest
         info!("Reading manifest file");
