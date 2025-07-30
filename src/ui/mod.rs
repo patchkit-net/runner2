@@ -43,7 +43,7 @@ impl RunnerApp {
 }
 
 impl eframe::App for RunnerApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Process any pending messages
         while let Ok(message) = self.receiver.try_recv() {
             match message {

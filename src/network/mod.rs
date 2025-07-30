@@ -1,7 +1,7 @@
 use crate::Result;
 use reqwest::Client;
 use serde::{Deserialize};
-use std::time::{Duration, Instant};
+use std::time::{Instant};
 use std::path::Path;
 use log::{debug, error, warn};
 use futures_util::StreamExt;
