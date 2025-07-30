@@ -83,7 +83,6 @@ fn is_elevated() -> bool {
 
 #[cfg(windows)]
 fn restart_as_admin() -> Result<()> {
-    use std::process::Command;
     use winapi::um::shellapi::ShellExecuteW;
     use winapi::um::winuser::SW_NORMAL;
     use std::os::windows::ffi::OsStrExt;
